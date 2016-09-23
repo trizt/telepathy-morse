@@ -585,6 +585,13 @@ Tp::BaseChannelPtr MorseConnection::createChannelCB(const QVariantMap &request, 
         break;
     }
 
+    if (!targetID.isTgIdentifier()) {
+        if (error) {
+            error->set(TP_QT_ERROR_INVALID_ARGUMENT, QLatin1String("Channel creation is not allowed for this target"));
+        }
+        return Tp::BaseChannelPtr();
+    }
+
     // Looks like there is no any case for InitiatorID other than selfID
     uint initiatorHandle = 0;
 
@@ -687,6 +694,12 @@ Tp::ContactAttributesMap MorseConnection::getContactAttributes(const Tp::UIntLis
             }
             attributes[TP_QT_IFACE_CONNECTION + QLatin1String("/contact-id")] = identifier.toString();
 
+            if (!identifier.phoneNumber().isEmpty()) {
+                // We have nothing to add for a phone number id
+                contactAttributes[handle] = attributes;
+                continue;
+            }
+
             if (interfaces.contains(TP_QT_IFACE_CONNECTION_INTERFACE_CONTACT_LIST)) {
                 attributes[TP_QT_IFACE_CONNECTION_INTERFACE_CONTACT_LIST + QLatin1String("/subscribe")] = Tp::SubscriptionStateYes;
                 attributes[TP_QT_IFACE_CONNECTION_INTERFACE_CONTACT_LIST + QLatin1String("/publish")] = Tp::SubscriptionStateYes;
@@ -719,19 +732,32 @@ void MorseConnection::requestSubscription(const Tp::UIntList &handles, const QSt
 //    http://telepathy.freedesktop.org/spec/Connection_Interface_Contact_List.html#Method:RequestSubscription
 
     Q_UNUSED(message);
-    const QStringList phoneNumbers = inspectHandles(Tp::HandleTypeContact, handles, error);
-
-    if (error->isValid()) {
+    if (!coreIsReady()) {
+        error->set(TP_QT_ERROR_DISCONNECTED, QLatin1String("Disconnected"));
+        return;
+    }
+    if (handles.isEmpty()) {
+        error->set(TP_QT_ERROR_INVALID_ARGUMENT, QLatin1String("No handle(s) specified"));
         return;
     }
 
-    if (phoneNumbers.isEmpty()) {
-        error->set(TP_QT_ERROR_INVALID_HANDLE, QLatin1String("Invalid handle(s)"));
+    QStringList phoneNumbers;
+    foreach (uint handle, handles) {
+        if (!m_handles.contains(handle)) {
+            error->set(TP_QT_ERROR_INVALID_HANDLE, QLatin1String("Invalid handle(s)"));
+            return;
+        }
+
+        const MorseIdentifier identifier = m_handles.value(handle);
+        if (identifier.phoneNumber().isEmpty()) {
+            error->set(TP_QT_ERROR_INVALID_HANDLE, QLatin1String("Unsuitable handle(s)"));
+            return;
+        }
+
+        phoneNumbers << identifier.phoneNumber();
     }
 
-    if (!coreIsReady()) {
-        error->set(TP_QT_ERROR_DISCONNECTED, QLatin1String("Disconnected"));
-    }
+    qDebug() << Q_FUNC_INFO << phoneNumbers;
 
     m_core->addContacts(phoneNumbers);
 }
@@ -775,8 +801,8 @@ Tp::ContactInfoFieldList MorseConnection::requestContactInfo(uint handle, Tp::DB
         return Tp::ContactInfoFieldList();
     }
     MorseIdentifier id = m_handles.value(handle);
-    if (id.isNull()) {
-        error->set(TP_QT_ERROR_INVALID_HANDLE, QLatin1String("Invalid morse identifier"));
+    if (!id.isTgIdentifier()) {
+        error->set(TP_QT_ERROR_INVALID_HANDLE, QLatin1String("Unsuitable morse identifier"));
         return Tp::ContactInfoFieldList();
     }
 
@@ -875,6 +901,10 @@ QString MorseConnection::getAlias(uint handle)
 {
     const MorseIdentifier identifier = m_handles.value(handle);
 
+    if (!identifier.phoneNumber().isEmpty()) {
+        return QString(); // Alias is not known for tel uri identifiers
+    }
+
     if (identifier.isNull()) {
         return QLatin1String("Invalid alias");
     }
@@ -920,7 +950,7 @@ uint MorseConnection::setPresence(const QString &status, const QString &message,
 
 uint MorseConnection::ensureHandle(const MorseIdentifier &identifier)
 {
-    if (identifier.userId()) {
+    if (identifier.userId() || !identifier.phoneNumber().isEmpty()) {
         return ensureContact(identifier);
     } else {
         return ensureChat(identifier);
@@ -1125,7 +1155,7 @@ void MorseConnection::whenContactListChanged()
 //    Tp::HandleIdentifierMap identifiers;
 //    Tp::HandleIdentifierMap removals;
 
-    QVector<uint> handles;
+    QList<uint> handles;
     QVector<MorseIdentifier> identifiers;
     handles.reserve(ids.count());
     identifiers.reserve(ids.count());
@@ -1135,7 +1165,7 @@ void MorseConnection::whenContactListChanged()
         handles.append(ensureContact(identifiers.last()));
     }
 
-    setSubscriptionState(handles, Tp::SubscriptionStateYes);
+    setSubscriptionState(identifiers, handles, Tp::SubscriptionStateYes);
     updateContactsStatus(identifiers);
 
     contactListIface->setContactListState(Tp::ContactListStateSuccess);
@@ -1264,7 +1294,7 @@ bool MorseConnection::coreIsAuthenticated()
 
 void MorseConnection::checkConnected()
 {
-    if (coreIsAuthenticated() && !m_handles.value(selfHandle()).isNull()) {
+    if (coreIsAuthenticated() && m_handles.value(selfHandle()).isTgIdentifier()) {
         setStatus(Tp::ConnectionStatusConnected, Tp::ConnectionStatusReasonRequested);
     }
 }

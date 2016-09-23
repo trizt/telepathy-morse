@@ -36,7 +36,9 @@ MorseIdentifier::MorseIdentifier() :
 
 bool MorseIdentifier::operator==(const MorseIdentifier &identifier) const
 {
-    return (m_userId == identifier.m_userId) && (m_chatId == identifier.m_chatId);
+    return (m_userId == identifier.m_userId)
+            && (m_chatId == identifier.m_chatId)
+            && (m_phoneNumber == identifier.m_phoneNumber);
 }
 
 bool MorseIdentifier::operator!=(const MorseIdentifier &identifier) const
@@ -44,13 +46,25 @@ bool MorseIdentifier::operator!=(const MorseIdentifier &identifier) const
     return !(*this == identifier);
 }
 
+bool MorseIdentifier::isNull() const
+{
+    return phoneNumber().isEmpty() && !isTgIdentifier();
+}
+
 TelegramNamespace::Peer MorseIdentifier::toPeer() const
 {
     if (m_chatId) {
         return TelegramNamespace::Peer(m_chatId, TelegramNamespace::Peer::Chat);
-    } else {
+    } else if (m_userId) {
         return TelegramNamespace::Peer(m_userId);
     }
+
+    return TelegramNamespace::Peer();
+}
+
+QString MorseIdentifier::phoneNumber() const
+{
+    return m_phoneNumber;
 }
 
 MorseIdentifier MorseIdentifier::fromPeer(const TelegramNamespace::Peer &peer)
@@ -92,6 +106,10 @@ QString MorseIdentifier::toString() const
 {
     QString result;
 
+    if (!m_phoneNumber.isEmpty()) {
+        return QLatin1String("tel:+") + m_phoneNumber;
+    }
+
     if (m_chatId) {
         result = c_chatPrefix + QString::number(m_chatId);
     }
@@ -109,10 +127,15 @@ MorseIdentifier MorseIdentifier::fromString(const QString &string)
 {
     MorseIdentifier id;
 
+    if (string.startsWith(QLatin1String("tel:+"))) {
+        id.m_phoneNumber = string.mid(5);
+        // Phone number without leading + and ().
+        return id;
+    }
+
     // Possible schemes: user1234, chat1234, user1234_chat1234
 
     int chatOffset = string.indexOf(c_chatPrefix);
-
 
     if (string.startsWith(c_userPrefix)) {
         int length = chatOffset < 0 ? -1 : chatOffset - c_userPrefix.size() - 1;
