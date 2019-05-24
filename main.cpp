@@ -23,29 +23,39 @@
 #include <TelepathyQt/Constants>
 #include <TelepathyQt/Debug>
 
+#include <TelegramQt/TelegramNamespace>
+
 #include "protocol.hpp"
 
+#ifdef ENABLE_DEBUG_IFACE
 #include "debug.hpp"
+#endif
 
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
+    app.setOrganizationName(QLatin1String("TelepathyIM"));
     app.setApplicationName(QLatin1String("telepathy-morse"));
 
+    Telegram::initialize();
     Tp::registerTypes();
     Tp::enableDebug(true);
     Tp::enableWarnings(true);
+#ifdef ENABLE_DEBUG_IFACE
     enableDebugInterface();
+#endif
 
     Tp::BaseProtocolPtr proto = Tp::BaseProtocol::create<MorseProtocol>(QLatin1String("telegram"));
     Tp::BaseConnectionManagerPtr cm = Tp::BaseConnectionManager::create(QLatin1String("morse"));
 
-    proto->setEnglishName(QLatin1String("Telegram"));
-    proto->setIconName(QLatin1String("telegram"));
-    proto->setVCardField(QLatin1String("tel"));
-
-    cm->addProtocol(proto);
-    cm->registerObject();
+    if (!cm->addProtocol(proto)) {
+        qCritical() << "Unable to add" << proto->name() << "protocol";
+        return 1;
+    }
+    if (!cm->registerObject()) {
+        qCritical() << "Unable to register the cm service";
+        return 2;
+    }
 
     return app.exec();
 }

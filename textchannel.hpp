@@ -22,15 +22,27 @@
 
 #include <QPointer>
 
+#include <TelegramQt/TelegramNamespace>
+
 #include <TelepathyQt/BaseChannel>
-
-#include <TelegramQt/CTelegramCore>
-
-#include "identifier.hpp"
 
 class QTimer;
 
+class CTelegramCore;
+
 class MorseTextChannel;
+class MorseConnection;
+
+namespace Telegram {
+
+namespace Client {
+
+class Client;
+class MessagingApi;
+
+} // Client namespace
+
+} // Telegram namespace
 
 typedef Tp::SharedPtr<MorseTextChannel> MorseTextChannelPtr;
 
@@ -55,7 +67,7 @@ class MorseTextChannel : public Tp::BaseChannelTextType
 {
     Q_OBJECT
 public:
-    static MorseTextChannelPtr create(CTelegramCore *core, Tp::BaseChannel *baseChannel, uint selfHandle, const QString &selfID);
+    static MorseTextChannelPtr create(MorseConnection *morseConnection, Tp::BaseChannel *baseChannel);
     virtual ~MorseTextChannel();
 
     QString sendMessageCallback(const Tp::MessagePartList &messageParts, uint flags, Tp::DBusError *error);
@@ -63,33 +75,34 @@ public:
     void messageAcknowledgedCallback(const QString &messageId);
 
 public slots:
-    void whenContactChatStateComposingChanged(quint32 userId, TelegramNamespace::MessageAction action);
-    void whenContactRoomStateComposingChanged(quint32 chatId, quint32 userId, TelegramNamespace::MessageAction action);
-    void setMessageAction(const MorseIdentifier &identifier, TelegramNamespace::MessageAction action);
-    void whenMessageReceived(const TelegramNamespace::Message &message, uint contactHandle);
+    void onMessageActionChanged(const Telegram::Peer &peer, quint32 userId, TelegramNamespace::MessageAction action);
+    void setMessageAction(quint32 userId, TelegramNamespace::MessageAction action);
+    void onMessageReceived(const Telegram::Message &message);
     void updateChatParticipants(const Tp::UIntList &handles);
 
-    void whenChatDetailsChanged(quint32 chatId, const Tp::UIntList &handles);
+    void onChatDetailsChanged(quint32 chatId, const Tp::UIntList &handles);
 
 protected slots:
-    void setMessageInboxRead(TelegramNamespace::Peer peer, quint32 messageId);
-    void setMessageOutboxRead(TelegramNamespace::Peer peer, quint32 messageId);
-    void setResolvedMessageId(quint64 randomId, quint32 resolvedId);
+    void setMessageInboxRead(Telegram::Peer peer, quint32 messageId);
+    void setMessageOutboxRead(Telegram::Peer peer, quint32 messageId);
+    void setResolvedMessageId(Telegram::Peer peer, quint64 messageRandomId, quint32 messageId);
     void reactivateLocalTyping();
 
 protected:
     void setChatState(uint state, Tp::DBusError *error);
 
 private:
-    MorseTextChannel(CTelegramCore *core, Tp::BaseChannel *baseChannel, uint selfHandle, const QString &selfID);
+    MorseTextChannel(MorseConnection *morseConnection, Tp::BaseChannel *baseChannel);
 
-    QPointer<CTelegramCore> m_core;
+    MorseConnection *m_connection;
+    Telegram::Client::Client *m_client;
+    Telegram::Client::MessagingApi *m_api = nullptr;
 
     uint m_targetHandle;
     uint m_targetHandleType;
     uint m_selfHandle;
-    MorseIdentifier m_targetID;
-    MorseIdentifier m_selfID;
+    Telegram::Peer m_targetPeer;
+    Telegram::Peer m_selfPeer;
 
     Tp::BaseChannelTextTypePtr m_channelTextType;
     Tp::BaseChannelMessagesInterfacePtr m_messagesIface;
